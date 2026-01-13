@@ -19,16 +19,6 @@ extern RTC_DS1307 rtc;
 extern const char* const NTP_SERVERS[];
 extern const int NTP_SERVER_COUNT;
 
-// 使用global_config.h中定义的timeState结构体中的变量
-// 不再需要这些局部变量定义：
-// int currentNtpServerIndex = 0;
-// bool ntpCheckInProgress = false;
-// unsigned long lastNtpCheckAttempt = 0;
-// char currentNtpServer[30] = "pool.ntp.org";
-// int ntpFailCount = 0;
-// unsigned long lastRtcSync = 0;
-// bool timeSourceChanged = false;
-
 // 辅助函数声明
 bool isLeapYear(int year);
 int getDaysInMonth(int month, int year);
@@ -170,19 +160,21 @@ void ensureNtpClientInitialized() {
   }
 }
 
-bool checkNtpConnection() {
+bool checkNtpConnection(bool forceCheck) {
   if (!systemState.wifiConfigured || WiFi.status() != WL_CONNECTED) {
     LOG_DEBUG("WiFi not connected for NTP");
     return false;
   }
   
-  // 防止频繁检查NTP，设置冷却时间
+  // 防止频繁检查NTP，设置冷却时间（除非强制检查）
   unsigned long currentMillis = millis();
-  // 使用溢出安全的时间比较
-  unsigned long ntpCheckElapsed = currentMillis - timeState.lastNtpCheckAttempt;
-  if (ntpCheckElapsed < NTP_CHECK_COOLDOWN) {
-    LOG_DEBUG("NTP check in cooldown period");
-    return false;
+  if (!forceCheck) {
+    // 使用溢出安全的时间比较
+    unsigned long ntpCheckElapsed = currentMillis - timeState.lastNtpCheckAttempt;
+    if (ntpCheckElapsed < NTP_CHECK_COOLDOWN) {
+      LOG_DEBUG("NTP check in cooldown period");
+      return false;
+    }
   }
   
   timeState.lastNtpCheckAttempt = currentMillis;
@@ -205,7 +197,10 @@ bool checkNtpConnection() {
   LOG_DEBUG("Trying NTP server: %s", timeState.currentNtpServer);
   
   // 使用非阻塞方式更新NTP时间，避免长时间阻塞
+  // 虽然这里已经在checkNtpConnection函数中，但仍需要确保不会造成额外阻塞
   timeClient.update();
+  // 在NTP检查后调用yield()，确保按键响应
+  yield();
   
   // 检查NTP时间是否有效
   if (timeClient.isTimeSet()) {
@@ -235,6 +230,10 @@ bool checkNtpConnection() {
   }
   
   timeState.ntpCheckInProgress = false;
+  
+  // 在NTP检查后调用yield()，确保按键响应
+  yield();
+  
   return success;
 }
 
@@ -264,7 +263,7 @@ void setupTimeSources() {
     LOG_DEBUG("NTP client initialized for backup time source");
     
     // 尝试获取NTP时间
-    if (checkNtpConnection()) {
+    if (checkNtpConnection(false)) {
       // NTP连接成功，切换到NTP时间源
       switchTimeSource(TIME_SOURCE_NTP);
       LOG_DEBUG("✓ NTP available, using as time source");
@@ -303,10 +302,31 @@ bool getCurrentTimeFromNtp(DateTime& now) {
   // 确保NTP客户端已正确初始化
   ensureNtpClientInitialized();
   
-  // 使用非阻塞方式更新NTP时间（避免频繁forceUpdate）
-  timeClient.update();
+  // 检查NTP时间是否已设置（避免不必要的网络请求）
+  if (timeClient.isTimeSet()) {
+    time_t ntpTime = timeClient.getEpochTime();
+    
+    // 验证NTP时间有效性
+    if (ntpTime > 1577836800UL && ntpTime < 2524608000UL) {
+      struct tm *ntpTm = gmtime(&ntpTime);
+      if (ntpTm != nullptr && ntpTm->tm_year >= 120) {
+        // 创建NTP时间的DateTime对象
+        now = DateTime(ntpTm->tm_year + 1900, ntpTm->tm_mon + 1, ntpTm->tm_mday,
+                       ntpTm->tm_hour, ntpTm->tm_min, ntpTm->tm_sec);
+        return true;
+      }
+    }
+  }
   
-  // 检查NTP时间是否有效
+  // 如果时间未设置，尝试更新（仅在必要时）
+  // 使用非阻塞方式替代直接调用timeClient.update()
+  if (!timeState.ntpCheckInProgress) {
+    timeState.ntpCheckInProgress = true;
+    timeClient.update();
+    timeState.ntpCheckInProgress = false;
+  }
+  
+  // 再次检查NTP时间是否有效
   if (timeClient.isTimeSet()) {
     time_t ntpTime = timeClient.getEpochTime();
     
@@ -369,7 +389,18 @@ void syncNtpToRtc() {
   
   // 强制更新NTP时间
   LOG_DEBUG("Syncing NTP time to RTC...");
-  if (!timeClient.forceUpdate()) {
+  bool updateSuccess = false;
+  if (!timeState.ntpCheckInProgress) {
+    timeState.ntpCheckInProgress = true;
+    updateSuccess = timeClient.forceUpdate();
+    timeState.ntpCheckInProgress = false;
+    yield(); // 在NTP更新后让出控制权
+  } else {
+    LOG_DEBUG("NTP update in progress, skipping sync");
+    return;
+  }
+  
+  if (!updateSuccess) {
     LOG_DEBUG("Failed to update NTP time");
     handleError(ERROR_NTP_CONNECTION_FAILED, ERROR_LEVEL_WARNING, "Failed to update NTP time for sync");
     return;
@@ -431,6 +462,7 @@ void switchTimeSource(TimeSource newSource) {
     timeState.lastTimeSource = timeState.currentTimeSource;
     timeState.currentTimeSource = newSource;
     timeState.timeSourceChanged = true;
+    timeState.lastTimeSourceSwitch = millis(); // 记录时间源切换时间
     
     // 根据新的时间源类型执行特定操作
     switch (newSource) {
@@ -546,6 +578,14 @@ void exitTimeSourceSettingMode() {
   } else {
     // 时间源可用，进行切换
     switchTimeSource(selectedSource);
+    
+    // 如果切换到NTP时间源，标记需要尽快检查NTP时间（在主循环中执行，避免阻塞）
+    if (selectedSource == TIME_SOURCE_NTP) {
+      LOG_DEBUG("Marking NTP time check needed after source switch");
+      // 设置标记，让主循环在下一个周期尝试获取NTP时间
+      timeState.lastNtpCheckAttempt = 0; // 重置最后检查时间，确保下次循环立即检查
+    }
+    
     LOG_DEBUG("Switched to time source: %s", getTimeSourceName(timeState.currentTimeSource));
   }
 }

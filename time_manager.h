@@ -31,7 +31,7 @@ extern TimeState timeState;
 
 // 函数声明
 void setupTimeSources(); // 设置时间源
-bool checkNtpConnection(); // 检查NTP连接
+bool checkNtpConnection(bool forceCheck = false); // 检查NTP连接
 bool getCurrentTime(DateTime& now); // 获取当前时间（从NTP或DS1306）
 bool getCurrentTimeFromNtp(DateTime& now); // 从NTP获取当前时间
 void syncNtpToRtc(); // 将NTP时间同步到DS1307

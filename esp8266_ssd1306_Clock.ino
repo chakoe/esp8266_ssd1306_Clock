@@ -76,26 +76,51 @@ void setup() {
     systemState.needsRefresh = true; // 标记需要立即显示
   }
   
-  // 检查是否按下K4键进入配网模式（优化检测，最多200ms）
+  // 检查是否按下K4键进入配网模式（检测长按，最多1000ms）
   bool pressed = false;
   unsigned long pressStart = millis();
   
-  // 优化：只检测200ms，如果未按下则快速跳过
-  while (millis() - pressStart < 100) { // 减少检测时间
+  // 检测K4是否被持续按下（长按）
+  unsigned long initialLowTime = 0;
+  bool wasInitiallyLow = false;
+  
+  // 检测是否一开始就是低电平（按键被按下）
+  if (digitalRead(K4_PIN) == LOW) {
+    initialLowTime = millis();
+    wasInitiallyLow = true;
+  }
+  
+  // 继续监测一段时间，看是否是长按
+  while (millis() - pressStart < 1000) {  // 增加检测时间以确保能检测到长按
     if (digitalRead(K4_PIN) == LOW) {
-      pressed = true;
-      // 确认是长按，再等待200ms
-      // 使用非阻塞延时替代delay(200)
-      nonBlockingDelay(200);
-      if (digitalRead(K4_PIN) == LOW) {
-        // 确实是长按
-        break;
-      } else {
-        pressed = false;
+      if (!wasInitiallyLow) {
+        // 按键在此期间变低，记录时间
+        initialLowTime = millis();
+        wasInitiallyLow = true;
       }
+      // 检查是否持续按下超过长按时间
+      if (millis() - initialLowTime >= LONG_PRESS_TIME && !pressed) {
+        pressed = true;
+      }
+    } else {
+      // 按键释放，重置状态
+      wasInitiallyLow = false;
+      pressed = false;  // 如果在达到长按时间前释放，则不算作长按
     }
-    // 使用非阻塞延时替代delay(5)
-    nonBlockingDelay(5);
+    
+    // 使用非阻塞延时
+    nonBlockingDelay(10);
+  }
+  
+  // 如果检测到长按，重置按键状态以避免后续冲突
+  if (pressed) {
+    // 确保按键状态被正确重置
+    ButtonState& k4Btn = buttonStates.buttons[3]; // K4对应索引3
+    k4Btn.lastState = HIGH;
+    k4Btn.stableState = HIGH;
+    k4Btn.isPressed = false;
+    k4Btn.lastPressTime = 0;
+    k4Btn.lastReleaseTime = millis();
   }
   
   if (pressed) {
@@ -240,9 +265,28 @@ void loop() {
   // 如果当前使用NTP时间源，更频繁地检查时间更新
   // 这有助于在RTC故障后更快地获取网络时间
   static unsigned long lastNtpUpdateTime = 0;
+  
+  // 检查是否需要立即进行NTP连接检查（例如在切换到NTP时间源后）
+  if (timeState.currentTimeSource == TIME_SOURCE_NTP && systemState.networkConnected && 
+      timeState.lastNtpCheckAttempt == 0 && !timeState.ntpCheckInProgress) {
+    // 尝试进行NTP连接检查
+    if (checkNtpConnection(true)) {
+      LOG_DEBUG("Successfully got NTP time after source switch");
+      // 成功获取NTP时间后，强制刷新显示
+      systemState.needsRefresh = true;
+      lastNtpUpdateTime = currentMillis; // 更新最后更新时间
+    } else {
+      LOG_DEBUG("Failed to get NTP time after source switch");
+    }
+  }
+  
+  // 如果当前使用NTP时间源且时间已有一段时间未更新，检查NTP更新
   if (timeState.currentTimeSource == TIME_SOURCE_NTP && 
-      currentMillis - lastNtpUpdateTime > 10000) { // 每10秒检查一次NTP更新
-    timeClient.update();
+      currentMillis - lastNtpUpdateTime > 5000) { // 每5秒检查一次NTP更新
+    // 使用非阻塞的checkNtpConnection替代timeClient.update()
+    if (!timeState.ntpCheckInProgress) {  // 确保不在已有NTP检查进行时
+      checkNtpConnection(false);
+    }
     lastNtpUpdateTime = currentMillis;
   }
   

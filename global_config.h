@@ -121,6 +121,7 @@ struct TimeState {
     bool ntpCheckInProgress;
     unsigned long lastNtpCheckAttempt;
     int currentNtpServerIndex;
+    unsigned long lastTimeSourceSwitch;
 };
 
 extern TimeState timeState;

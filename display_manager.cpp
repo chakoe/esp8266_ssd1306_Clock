@@ -125,10 +125,55 @@ void displayTimeSourceIcon() {
 void displayTime() {
   DateTime now;
   if (!getCurrentTime(now)) {
-    if (!systemState.forceDisplayTimeError) {
-      displayErrorScreen("时间获取失败", "请检查系统状态");
+    // 检查是否刚切换到NTP时间源（在10秒内），如果是，则暂时不显示错误信息
+    unsigned long currentTime = millis();
+    unsigned long timeSinceSwitch = currentTime - timeState.lastTimeSourceSwitch;
+    bool justSwitchedToNtp = (timeState.currentTimeSource == TIME_SOURCE_NTP) && 
+                             (timeSinceSwitch < 10000) && // 10秒内
+                             (systemState.networkConnected);
+    
+    // 如果当前是NTP时间源但无法获取时间，尝试回退到RTC时间源
+    if (timeState.currentTimeSource == TIME_SOURCE_NTP && 
+        systemState.rtcInitialized && systemState.rtcTimeValid && 
+        (!justSwitchedToNtp || timeSinceSwitch >= 3000)) { // 如果已超过3秒仍未获取到NTP时间
+      // 临时使用RTC时间显示，但保持时间源为NTP
+      now = rtc.now();
+      if (isRtcTimeValid(now)) {
+        // 继续使用RTC时间显示，不返回
+      } else {
+        if (!systemState.forceDisplayTimeError && !justSwitchedToNtp) {
+          displayErrorScreen("时间获取失败", "请检查系统状态");
+        } else if (justSwitchedToNtp) {
+          // 刚切换到NTP，显示提示信息而不是错误
+          u8g2.clearBuffer();
+          u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+          u8g2.drawUTF8(0, 20, "正在获取网络时间");
+          u8g2.drawUTF8(0, 35, "请稍候...");
+          
+          // 显示时间源图标
+          displayTimeSourceIcon();
+          
+          u8g2.sendBuffer();
+        }
+        return;
+      }
+    } else {
+      if (!systemState.forceDisplayTimeError && !justSwitchedToNtp) {
+        displayErrorScreen("时间获取失败", "请检查系统状态");
+      } else if (justSwitchedToNtp) {
+        // 刚切换到NTP，显示提示信息而不是错误
+        u8g2.clearBuffer();
+        u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+        u8g2.drawUTF8(0, 20, "正在获取网络时间");
+        u8g2.drawUTF8(0, 35, "请稍候...");
+        
+        // 显示时间源图标
+        displayTimeSourceIcon();
+        
+        u8g2.sendBuffer();
+      }
+      return;
     }
-    return;
   }
   
   // 验证时间有效性
@@ -540,12 +585,18 @@ void enterBrightnessSettingMode() {
 }
 
 void exitBrightnessSettingMode() {
+  // 添加初始化检查
+  if (systemState.wifiConfigured == false && systemState.rtcInitialized == false) {
+    LOG_WARNING("System not initialized, cannot apply brightness settings");
+    return;
+  }
+  
   settingState.brightnessSettingMode = false;
   
   // 应用亮度设置
   u8g2.setContrast(BRIGHTNESS_LEVELS[displayState.brightnessIndex]);
   
-  LOG_DEBUG("Brightness setting applied: %s", BRIGHTNESS_LABELS[displayState.brightnessIndex]);
+  LOG_DEBUG("Brightness setting applied: %s (index: %d, contrast value: %d)", BRIGHTNESS_LABELS[displayState.brightnessIndex], displayState.brightnessIndex, BRIGHTNESS_LEVELS[displayState.brightnessIndex]);
 }
 
 // 从PROGMEM读取字符串到临时缓冲区的辅助函数
@@ -605,10 +656,16 @@ void displayBrightnessSettingScreen() {
 }
 
 void updateBrightnessSetting(int direction) {
+  // 添加初始化检查
+  if (systemState.wifiConfigured == false && systemState.rtcInitialized == false) {
+    LOG_WARNING("System not initialized, cannot adjust brightness");
+    return;
+  }
+  
   // 更新亮度索引
   int newBrightnessIndex = displayState.brightnessIndex + direction;
   
-  // 边界检查
+  // 边界检查 - 循环边界而不是限制在范围内
   if (newBrightnessIndex > 3) newBrightnessIndex = 0;
   else if (newBrightnessIndex < 0) newBrightnessIndex = 3;
   
@@ -618,7 +675,7 @@ void updateBrightnessSetting(int direction) {
     // 应用新的亮度设置
     u8g2.setContrast(BRIGHTNESS_LEVELS[displayState.brightnessIndex]);
     
-    LOG_DEBUG("Brightness level: %s", BRIGHTNESS_LABELS[displayState.brightnessIndex]);
+    LOG_DEBUG("Brightness level: %s (index: %d, contrast value: %d)", BRIGHTNESS_LABELS[displayState.brightnessIndex], displayState.brightnessIndex, BRIGHTNESS_LEVELS[displayState.brightnessIndex]);
   } else {
     LOG_DEBUG("Invalid brightness index");
   }

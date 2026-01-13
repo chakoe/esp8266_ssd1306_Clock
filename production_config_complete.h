@@ -17,7 +17,10 @@
 // =============================================================================
 
 // 启用生产模式（禁用调试输出）
-#define PRODUCTION_MODE
+// 注意：如果未通过编译标志定义，则在此处定义
+#ifndef PRODUCTION_MODE
+    #define PRODUCTION_MODE
+#endif
 
 // 生产环境标识
 #define PRODUCTION_VERSION "2.0"

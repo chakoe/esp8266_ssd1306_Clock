@@ -212,10 +212,6 @@ void handleTimeSourceMode(int buttonIndex) {
 // 常规模式处理函数
 void handleNormalMode(int buttonIndex) {
   switch (buttonIndex) {
-    case 0: // K1键功能已移除
-      // 保留空case以避免编译错误
-      break;
-    
     case 1: // K2短按切换字体大小
       displayState.largeFont = !displayState.largeFont;
       systemState.needsRefresh = true;

@@ -67,10 +67,17 @@ String getApName() {
 void resetToAP() {
   LOG_DEBUG("Resetting to AP mode...");
   
-  // 显示重置信息
-  displayError("配网模式", nullptr);
-  // 使用非阻塞延时替代delay(2000)
-  nonBlockingDelay(2000);
+  // 显示配网模式信息3秒
+  displayError("配网模式", "3秒后进入后台配网");
+  // 使用非阻塞延时替代delay(3000)
+  nonBlockingDelay(3000);
+  
+  // 如果RTC可用，切换到RTC时间源以确保用户体验
+  if (systemState.rtcInitialized && systemState.rtcTimeValid) {
+    switchTimeSource(TIME_SOURCE_RTC);
+    systemState.needsRefresh = true; // 强制刷新显示
+  }
+  
   // 清除WiFi配置并重启进入配网模式
   WiFi.disconnect(true);
   ESP.reset();
@@ -141,7 +148,7 @@ void checkNetworkStatus() {
         unsigned long currentMillis = millis();
         unsigned long ntpCheckElapsed = currentMillis - timeState.lastNtpCheckAttempt;
         if (ntpCheckElapsed > NTP_CHECK_COOLDOWN) {
-          checkNtpConnection();
+          checkNtpConnection(false); // 不强制检查
         }
       }
     }

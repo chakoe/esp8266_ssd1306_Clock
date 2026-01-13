@@ -79,6 +79,12 @@ void updatePowerManagement() {
 }
 
 void setPowerMode(PowerMode mode) {
+    // 添加初始化检查
+    if (!systemState.wifiConfigured && !systemState.rtcInitialized) {
+        LOG_WARNING("System not initialized, cannot set power mode");
+        return;
+    }
+    
     if (powerConfig.currentMode == mode) {
         return;
     }
@@ -180,21 +186,42 @@ bool isNightTime() {
 }
 
 void updateDisplayBrightness() {
+    // 添加初始化检查 - 确保系统状态允许进行显示操作
+    if (!systemState.wifiConfigured && !systemState.rtcInitialized) {
+        // 如果WiFi和RTC都没准备好，可以继续设置亮度，因为这不影响显示设备本身
+        // 只记录警告信息
+        LOG_WARNING("System not fully initialized, but attempting brightness update");
+    }
+    
     if (powerConfig.currentMode == POWER_MODE_SLEEP) {
         return;
     }
     
+    // 检查powerConfig是否在合理范围内（防止意外的数据损坏）
+    if (powerConfig.nightBrightness < 0 || powerConfig.nightBrightness > 3 || 
+        powerConfig.dayBrightness < 0 || powerConfig.dayBrightness > 3) {
+        LOG_WARNING("Power config values out of range, using defaults");
+        if (powerConfig.nightBrightness < 0 || powerConfig.nightBrightness > 3) {
+            powerConfig.nightBrightness = 1; // 默认值
+        }
+        if (powerConfig.dayBrightness < 0 || powerConfig.dayBrightness > 3) {
+            powerConfig.dayBrightness = 2; // 默认值
+        }
+    }
+    
     int targetBrightness = isNightTime() ? powerConfig.nightBrightness : powerConfig.dayBrightness;
     
-    // 确保目标亮度在有效范围内
-    if (targetBrightness < 0 || targetBrightness > 3) {
-        targetBrightness = 2; // 默认值
+    // 确保目标亮度在有效范围内 - 合理的边界修正逻辑
+    if (targetBrightness < 0) {
+        targetBrightness = 0; // 下限修正为下限
+    } else if (targetBrightness > 3) {
+        targetBrightness = 3; // 上限修正为上限
     }
     
     if (displayState.brightnessIndex != targetBrightness) {
         displayState.brightnessIndex = targetBrightness;
         u8g2.setContrast(BRIGHTNESS_LEVELS[targetBrightness]);
         
-        LOG_DEBUG("Display brightness updated to: %d", targetBrightness);
+        LOG_DEBUG("Display brightness updated to: %d (contrast value: %d)", targetBrightness, BRIGHTNESS_LEVELS[targetBrightness]);
     }
 }

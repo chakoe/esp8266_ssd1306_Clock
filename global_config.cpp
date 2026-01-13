@@ -78,7 +78,8 @@ TimeState timeState = {
     false,  // timeSourceChanged
     false,  // ntpCheckInProgress
     0,      // lastNtpCheckAttempt
-    0       // currentNtpServerIndex
+    0,      // currentNtpServerIndex
+    0       // lastTimeSourceSwitch
 };
 
 // 全局常量定义 - 使用PROGMEM优化内存

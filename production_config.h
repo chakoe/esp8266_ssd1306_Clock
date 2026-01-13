@@ -15,7 +15,10 @@
 // 生产环境配置选项
 
 // 启用生产模式（禁用调试日志）
-#define PRODUCTION_MODE
+// 注意：如果未通过编译标志定义，则在此处定义
+#ifndef PRODUCTION_MODE
+    #define PRODUCTION_MODE
+#endif
 
 // 日志级别设置
 #ifdef PRODUCTION_MODE
