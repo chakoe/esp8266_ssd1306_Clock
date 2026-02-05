@@ -1,0 +1,10 @@
+
+   测试文件：test_main.ino  
+
+使用方法
+第一步：
+请把：test_main.ino 移到：esp8266_ssd1306_Clock 文件夹目录下。
+第二步：
+再把：esp8266_ssd1306_Clock.ino  文件移动其他文件夹。
+
+原因：不能同时有两个 .ino 主程序，要不然编译出错。

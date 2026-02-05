@@ -1,0 +1,41 @@
+# ESP8266 4MB Flash 配置 - 优化空间分配
+# 实际Flash大小：4194304 bytes (4MB)
+
+# 使用4MB Flash配置，优化空间分配
+# 4MB (1MB SPIFFS) 提供最大的OTA分区空间
+menu.flash_size=4M (1MB SPIFFS)
+menu.flash_mode=dout
+menu.flash_freq=40
+menu.lwip.version=2.0
+
+# OTA分区表配置 - 为4MB Flash优化
+# 使用minimal分区表，OTA分区大小约1019KB，足够容纳当前固件（948KB）
+# 这是4MB Flash下能获得的最大OTA分区空间
+menu.partitions=minimal
+
+# 性能优化选项
+menu.cachesize=32KB
+menu.upload_speed=921600
+
+# 编译器优化选项 - 减少Flash和IRAM使用
+# -Os: 优化代码大小（推荐用于ESP8266）
+# -ffunction-sections: 将每个函数放入独立的段
+# -fdata-sections: 将每个数据项放入独立的段
+# -Wl,--gc-sections: 链接时移除未使用的段
+# -fno-exceptions: 禁用C++异常（节省空间）
+# -fno-rtti: 禁用C++运行时类型信息（节省空间）
+# -mmcu=esp8266: 指定目标MCU
+# -D__ets__: 定义ESP8266特定宏
+# -DICACHE_FLASH_ATTR: 默认将代码放入Flash
+# -DNONOSDK221=1: 使用非OS SDK v2.2.1
+# -DF_CPU=80000000L: CPU频率80MHz
+build.optimization_flags=-Os -ffunction-sections -fdata-sections -Wl,--gc-sections -fno-exceptions -fno-rtti -mmcu=esp8266 -D__ets__ -DICACHE_FLASH_ATTR -DNONOSDK221=1 -DF_CPU=80000000L
+
+# 移除调试符号以减小固件大小
+build.debug_flags=
+
+# 启用链接时优化（LTO）
+build.lto_flags=-flto
+
+# 优化字符串处理
+build.flags.optimize=-Os -DNDEBUG
