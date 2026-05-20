@@ -10,6 +10,12 @@
 #include "eeprom_config.h"
 #include "version.h"
 
+// UI 布局常量
+const int PADDING_X = 4;
+const int PADDING_Y = 2;
+const int SCREEN_WIDTH = 128;
+const int SCREEN_HEIGHT = 64;
+
 // 全局对象声明 - 现在统一在global_config.cpp中定义
 extern U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2;
 
@@ -30,61 +36,66 @@ extern const unsigned long DISPLAY_UPDATE_INTERVAL;
 
 
 
-// 辅助函数：显示日期
+// 辅助函数：显示日期（复古风格 - 顶部居中，带装饰线）
 void displayDate(const DateTime& now) {
-  // 使用栈分配的局部缓冲区，避免线程安全问题
-  char dateStr[30]; // 增加缓冲区大小以处理UTF-8中文字符
+  // 绘制顶部装饰线
+  u8g2.drawLine(PADDING_X, PADDING_Y + 1, 30, PADDING_Y + 1);
+  u8g2.drawLine(SCREEN_WIDTH - 30, PADDING_Y + 1, SCREEN_WIDTH - PADDING_X - 1, PADDING_Y + 1);
 
-  // 使用snprintf自动处理字符串终止
+  char dateStr[30];
   int result = snprintf(dateStr, sizeof(dateStr), "%04d-%02d-%02d",
                        now.year(), now.month(), now.day());
 
-  // 检查格式化是否成功
   if (result < 0 || result >= (int)sizeof(dateStr)) {
-    // 格式化失败或缓冲区不足，使用错误提示
     strncpy(dateStr, "日期格式错误", sizeof(dateStr) - 1);
     dateStr[sizeof(dateStr) - 1] = '\0';
   }
 
-  u8g2.setFont(u8g2_font_unifont_t_chinese3);
+  u8g2.setFont(u8g2_font_wqy12_t_gb2312);
   int16_t dateW = u8g2.getUTF8Width(dateStr);
-  int dateX = (128 - dateW) / 2;
-  const int dateY = 10;
+  int dateX = (SCREEN_WIDTH - dateW) / 2;
+  const int dateY = PADDING_Y + 12;
   u8g2.drawUTF8(dateX, dateY, dateStr);
 }
 
-// 辅助函数：显示时间
+// 辅助函数：显示时间（复古风格 - 核心区域，带分隔线）
 void displayTimeValue(const DateTime& now) {
   int hour = now.hour();
-  // 使用栈分配的局部缓冲区，避免线程安全问题
-  char timeStr[20]; // 增加缓冲区大小确保安全
+  char timeStr[20];
 
-  // 使用snprintf自动处理字符串终止
   int result = snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d",
                        hour, now.minute(), now.second());
 
-  // 检查格式化是否成功
   if (result < 0 || result >= (int)sizeof(timeStr)) {
-    // 格式化失败或缓冲区不足，使用错误提示
     strncpy(timeStr, "时间格式错误", sizeof(timeStr) - 1);
     timeStr[sizeof(timeStr) - 1] = '\0';
   }
+
+  // 绘制时间区域的上下分隔线（下方线居中，不贯穿两边）
+  u8g2.drawLine(PADDING_X, 18, SCREEN_WIDTH - PADDING_X - 1, 18);
+  
+  int lineWidth = 60; // 分隔线宽度
+  int lineStartX = (SCREEN_WIDTH - lineWidth) / 2;
+  u8g2.drawLine(lineStartX, 54, lineStartX + lineWidth, 54);
 
   if (displayState.largeFont) {
     u8g2.setFont(u8g2_font_logisoso26_tr);
   } else {
     u8g2.setFont(u8g2_font_logisoso18_tr);
   }
-  int16_t tw = u8g2.getUTF8Width(timeStr);
-  int tx = (128 - tw) / 2;
-  u8g2.drawUTF8(tx, displayState.largeFont ? 42 : 38, timeStr);
+  
+  // 固定时间显示位置，防止非等宽字体导致的跳动
+  // 针对不同字号使用不同的固定起始坐标，以确保视觉居中
+  int fixedX = displayState.largeFont ? 2 : 22; 
+  int fixedY = displayState.largeFont ? 48 : 42;
+  
+  u8g2.drawUTF8(fixedX, fixedY, timeStr);
 }
 
-// 辅助函数：显示市场日和星期
+// 辅助函数：显示市场日和星期（复古风格 - 底部区域，带底线）
 void displayMarketDayAndWeekday(const DateTime& now) {
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
 
-  // 计算市场日（需要转换为time_t）
   tm timeInfo = {};
   timeInfo.tm_year = now.year() - 1900;
   timeInfo.tm_mon = now.month() - 1;
@@ -94,45 +105,46 @@ void displayMarketDayAndWeekday(const DateTime& now) {
   timeInfo.tm_sec = 0;
   time_t currentTime = mktime(&timeInfo);
 
-  // 确保currentTime有效
   if (currentTime == (time_t)-1) {
     currentTime = now.unixtime();
   }
 
   int marketIndex;
   calculateMarketDay(currentTime, marketIndex);
-  // 边界检查：确保marketIndex在有效范围内（0-2）
   if (marketIndex < 0 || marketIndex >= 3) {
-    marketIndex = 0; // 默认值
+    marketIndex = 0;
   }
-  const int marketY = 62;
-  drawProgmemString((const char*)pgm_read_ptr(&MARKET_DAYS[marketIndex]), 2, marketY);
+  
+  // 绘制底部装饰底线
+  u8g2.drawLine(0, SCREEN_HEIGHT - 1, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1);
 
-  // 显示星期（使用dayOfTheWeek()方法，返回0-6）
+  const int infoY = SCREEN_HEIGHT - 4;
+  drawProgmemString((const char*)pgm_read_ptr(&MARKET_DAYS[marketIndex]), PADDING_X, infoY);
+
   int weekdayIndex = now.dayOfTheWeek();
-  if (weekdayIndex < 0 || weekdayIndex >= 7) weekdayIndex = 0; // 处理边界情况
+  if (weekdayIndex < 0 || weekdayIndex >= 7) weekdayIndex = 0;
 
-  // 获取星期字符串并计算宽度（使用栈分配的局部缓冲区）
   char weekBuffer[10];
   strcpy_P(weekBuffer, (const char*)pgm_read_ptr(&CN_WEEKDAYS[weekdayIndex]));
   int16_t ww = u8g2.getUTF8Width(weekBuffer);
-  u8g2.drawUTF8(128 - ww, marketY, weekBuffer);
+  u8g2.drawUTF8(SCREEN_WIDTH - ww - PADDING_X, infoY, weekBuffer);
 }
 
-// 辅助函数：显示时间源图标
+// 辅助函数：显示时间源图标（已禁用）
 void displayTimeSourceIcon() {
-  u8g2.setFont(u8g2_font_6x10_tf);
-  
-  // 根据当前时间源显示对应图标
-  if (timeState.currentTimeSource == TIME_SOURCE_NTP) {
-    u8g2.drawStr(120, 10, "*"); // *表示NTP时间
-  } else if (timeState.currentTimeSource == TIME_SOURCE_RTC) {
-    u8g2.drawStr(120, 10, "R"); // R表示RTC时间
-  } else if (timeState.currentTimeSource == TIME_SOURCE_MANUAL) {
-    u8g2.drawStr(120, 10, "S"); // S表示软件时钟
-  } else {
-    u8g2.drawStr(120, 10, "!"); // !表示时间错误
-  }
+  // 不再显示时间源图标，改为后台自动切换
+  // u8g2.setFont(u8g2_font_6x10_tf);
+  // 
+  // // 根据当前时间源显示对应图标
+  // if (timeState.currentTimeSource == TIME_SOURCE_NTP) {
+  //   u8g2.drawStr(120, 10, "*"); // *表示NTP时间
+  // } else if (timeState.currentTimeSource == TIME_SOURCE_RTC) {
+  //   u8g2.drawStr(120, 10, "R"); // R表示RTC时间
+  // } else if (timeState.currentTimeSource == TIME_SOURCE_MANUAL) {
+  //   u8g2.drawStr(120, 10, "S"); // S表示软件时钟
+  // } else {
+  //   u8g2.drawStr(120, 10, "!"); // !表示时间错误
+  // }
 }
 
 // 优化的显示刷新策略
@@ -164,7 +176,7 @@ void displayTime() {
           u8g2.setFont(u8g2_font_wqy12_t_gb2312);
           u8g2.drawUTF8(0, 20, "正在获取网络时间");
           u8g2.drawUTF8(0, 35, "请稍候...");
-          displayTimeSourceIcon();
+          // displayTimeSourceIcon(); // 已禁用时间源图标显示
           u8g2.sendBuffer();
         }
         return;
@@ -179,7 +191,7 @@ void displayTime() {
         u8g2.setFont(u8g2_font_wqy12_t_gb2312);
         u8g2.drawUTF8(0, 20, "正在获取网络时间");
         u8g2.drawUTF8(0, 35, "请稍候...");
-        displayTimeSourceIcon();
+        // displayTimeSourceIcon(); // 已禁用时间源图标显示
         u8g2.sendBuffer();
       }
       return;
@@ -223,7 +235,7 @@ void displayTime() {
     displayDate(now);
     displayTimeValue(now);
     displayMarketDayAndWeekday(now);
-    displayTimeSourceIcon();
+    // displayTimeSourceIcon(); // 已禁用时间源图标显示
     
     u8g2.sendBuffer();
   }
@@ -728,61 +740,63 @@ void exitSettingMode() {
 void displaySettingScreen() {
   u8g2.clearBuffer();
 
-  // 显示标题
+  // 绘制圆角外框
+  u8g2.drawRFrame(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 4);
+
+  // 显示标题 - 居中
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  u8g2.drawUTF8(0, 10, "设置时间");
+  const char* title = "设置时间";
+  int16_t titleW = u8g2.getUTF8Width(title);
+  u8g2.drawUTF8((SCREEN_WIDTH - titleW) / 2, 12, title);
 
   // 显示当前设置的日期
   char dateStr[20];
   snprintf(dateStr, sizeof(dateStr), "%04d-%02d-%02d", settingState.settingValues[0], settingState.settingValues[1], settingState.settingValues[2]);
   u8g2.setFont(u8g2_font_unifont_t_chinese3);
-  u8g2.drawUTF8(0, 28, dateStr);
+  int16_t dateW = u8g2.getUTF8Width(dateStr);
+  u8g2.drawUTF8((SCREEN_WIDTH - dateW) / 2, 30, dateStr);
 
   // 显示当前设置的时间
   char timeStr[16];
-  // 固定使用24小时制
   int displayHour = settingState.settingValues[3];
   snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", displayHour, settingState.settingValues[4], settingState.settingValues[5]);
-  u8g2.drawUTF8(0, 48, timeStr);
+  int16_t timeW = u8g2.getUTF8Width(timeStr);
+  u8g2.drawUTF8((SCREEN_WIDTH - timeW) / 2, 50, timeStr);
 
-  // 画下滑线高亮当前正在编辑的字段
+  // 高亮逻辑优化：使用反色块或加粗下划线
+  int fieldStartX = 0;
+  int fieldWidth = 0;
+  int highlightY = 0;
+
   if (settingState.settingField < 3) {
-    // 高亮日期字段
-    int fieldStartX = 0;
-    int fieldWidth = 0;
-
+    highlightY = 32; // 日期行下方
     if (settingState.settingField == 0) { // 年份
-      fieldStartX = 0; // 年份显示位置
-      fieldWidth = u8g2.getUTF8Width("0000"); // 年份字符宽度
+      fieldStartX = (SCREEN_WIDTH - dateW) / 2;
+      fieldWidth = u8g2.getUTF8Width("0000");
     } else if (settingState.settingField == 1) { // 月份
-      fieldStartX = u8g2.getUTF8Width("0000-"); // 月份显示位置
-      fieldWidth = u8g2.getUTF8Width("00"); // 月份字符宽度
+      fieldStartX = (SCREEN_WIDTH - dateW) / 2 + u8g2.getUTF8Width("0000-");
+      fieldWidth = u8g2.getUTF8Width("00");
     } else if (settingState.settingField == 2) { // 日期
-      fieldStartX = u8g2.getUTF8Width("0000-00-"); // 日期显示位置
-      fieldWidth = u8g2.getUTF8Width("00"); // 日期字符宽度
+      fieldStartX = (SCREEN_WIDTH - dateW) / 2 + u8g2.getUTF8Width("0000-00-");
+      fieldWidth = u8g2.getUTF8Width("00");
     }
-
-    // 绘制下滑线
-    u8g2.drawHLine(fieldStartX, 30, fieldWidth);
   } else {
-    // 高亮时间字段
-    int fieldStartX = 0;
-    int fieldWidth = 0;
-
+    highlightY = 52; // 时间行下方
     if (settingState.settingField == 3) { // 小时
-      fieldStartX = 0; // 小时显示位置
-      fieldWidth = u8g2.getUTF8Width("00"); // 小时字符宽度
+      fieldStartX = (SCREEN_WIDTH - timeW) / 2;
+      fieldWidth = u8g2.getUTF8Width("00");
     } else if (settingState.settingField == 4) { // 分钟
-      fieldStartX = u8g2.getUTF8Width("00:"); // 分钟显示位置
-      fieldWidth = u8g2.getUTF8Width("00"); // 分钟字符宽度
+      fieldStartX = (SCREEN_WIDTH - timeW) / 2 + u8g2.getUTF8Width("00:");
+      fieldWidth = u8g2.getUTF8Width("00");
     } else if (settingState.settingField == 5) { // 秒
-      fieldStartX = u8g2.getUTF8Width("00:00:"); // 秒显示位置
-      fieldWidth = u8g2.getUTF8Width("00"); // 秒字符宽度
+      fieldStartX = (SCREEN_WIDTH - timeW) / 2 + u8g2.getUTF8Width("00:00:");
+      fieldWidth = u8g2.getUTF8Width("00");
     }
-
-    // 绘制下滑线
-    u8g2.drawHLine(fieldStartX, 50, fieldWidth);
   }
+
+  // 绘制加粗高亮线（两条平行线）
+  u8g2.drawHLine(fieldStartX, highlightY, fieldWidth);
+  u8g2.drawHLine(fieldStartX, highlightY + 1, fieldWidth);
 
   u8g2.sendBuffer();
 }
@@ -866,37 +880,51 @@ void formatDateString(char* buffer, size_t size, int year, int month, int day) {
 void displayBrightnessSettingScreen() {
   u8g2.clearBuffer();
 
-  // 显示标题
+  // 绘制圆角外框
+  u8g2.drawRFrame(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT, 4);
+
+  // 显示标题 - 居中
   u8g2.setFont(u8g2_font_wqy16_t_gb2312);
-  u8g2.drawUTF8(0, 16, "设置亮度");
+  const char* title = "设置亮度";
+  int16_t titleW = u8g2.getUTF8Width(title);
+  u8g2.drawUTF8((SCREEN_WIDTH - titleW) / 2, 16, title);
 
-  // 显示当前亮度等级
+  // 显示当前亮度等级 - 居中
   u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-  u8g2.drawUTF8(0, 32, "当前亮度:");
+  const char* label = "当前亮度:";
+  int16_t labelW = u8g2.getUTF8Width(label);
+  u8g2.drawUTF8((SCREEN_WIDTH - labelW) / 2, 32, label);
 
-  // 边界检查：确保brightnessIndex在有效范围内（0-3）
   int safeBrightnessIndex = displayState.brightnessIndex;
   if (safeBrightnessIndex < 0 || safeBrightnessIndex >= 4) {
-    safeBrightnessIndex = 2; // 默认值
+    safeBrightnessIndex = 2;
   }
-  drawProgmemString((const char*)pgm_read_ptr(&BRIGHTNESS_LABELS[safeBrightnessIndex]), 0, 48);
+  
+  // 亮度值居中显示
+  char buf[20];
+  strncpy_P(buf, (const char*)pgm_read_ptr(&BRIGHTNESS_LABELS[safeBrightnessIndex]), sizeof(buf) - 1);
+  buf[sizeof(buf) - 1] = '\0';
+  int16_t valW = u8g2.getUTF8Width(buf);
+  u8g2.drawUTF8((SCREEN_WIDTH - valW) / 2, 46, buf);
 
-  // 绘制亮度条
-  int barX = 70;
-  int barY = 40;
-  int barWidth = 40;
-  int barHeight = 8;
+  // 绘制拟物化进度条（带刻度）
+  int barX = 20;
+  int barY = 54;
+  int barWidth = 88;
+  int barHeight = 6;
 
-  // 绘制亮度条背景
+  // 绘制背景槽
   u8g2.drawFrame(barX, barY, barWidth, barHeight);
 
-  // 绘制已填充部分
-  int filledWidth = (barWidth * (safeBrightnessIndex + 1)) / 4;
-  u8g2.drawBox(barX, barY, filledWidth, barHeight);
+  // 绘制刻度
+  for (int i = 0; i <= 4; i++) {
+    int tickX = barX + (barWidth * i) / 4;
+    u8g2.drawVLine(tickX, barY - 2, barHeight + 4);
+  }
 
-  // 绘制亮度等级指示器
-  int indicatorX = barX + (barWidth * safeBrightnessIndex) / 4;
-  u8g2.drawVLine(indicatorX, barY - 3, barHeight + 6);
+  // 绘制填充部分
+  int filledWidth = (barWidth * (safeBrightnessIndex + 1)) / 4;
+  u8g2.drawBox(barX + 1, barY + 1, filledWidth - 2, barHeight - 2);
 
   u8g2.sendBuffer();
 }

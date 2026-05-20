@@ -55,11 +55,12 @@ uint8_t calculateChecksum(const EEPROMConfig* config) {
     if (config == nullptr) return 0;
 
     // 构建用于CRC计算的数据数组（包含版本号）
-    uint8_t data[4];
+    uint8_t data[5];
     data[0] = config->version;
     data[1] = config->brightnessIndex;
-    data[2] = config->magicNumber & 0xFF;
-    data[3] = (config->magicNumber >> 8) & 0xFF;
+    data[2] = config->fontSize;
+    data[3] = config->magicNumber & 0xFF;
+    data[4] = (config->magicNumber >> 8) & 0xFF;
 
     // 返回CRC8校验值
     return crc8(data, sizeof(data));
@@ -83,10 +84,14 @@ bool validateEEPROM() {
     // 读取亮度索引
     uint8_t brightnessIndex = EEPROM.read(EEPROM_ADDR_BRIGHTNESS_INDEX);
 
+    // 读取字体大小
+    uint8_t fontSize = EEPROM.read(EEPROM_ADDR_FONT_SIZE);
+
     // 构建配置结构体
     EEPROMConfig config;
     config.version = version;
     config.brightnessIndex = brightnessIndex;
+    config.fontSize = fontSize;
     config.magicNumber = magicNumber;
     config.checksum = storedChecksum;
 
@@ -106,6 +111,12 @@ bool validateEEPROM() {
     // 验证亮度索引范围
     if (config.brightnessIndex > 3) {
         LOG_DEBUG("EEPROM brightness index out of range: %d", config.brightnessIndex);
+        return false;
+    }
+
+    // 验证字体大小范围
+    if (config.fontSize > 1) {
+        LOG_DEBUG("EEPROM font size out of range: %d", config.fontSize);
         return false;
     }
 
@@ -133,10 +144,14 @@ bool saveBrightnessIndex(uint8_t brightnessIndex) {
         return false;
     }
 
+    // 先读取当前的字体大小状态，以保持数据一致性
+    bool currentFontSize = loadFontSize();
+
     // 构建配置结构体
     EEPROMConfig config;
     config.version = EEPROM_CONFIG_VERSION;
     config.brightnessIndex = brightnessIndex;
+    config.fontSize = currentFontSize ? 1 : 0;
     config.magicNumber = EEPROM_MAGIC_NUMBER;
     config.checksum = 0;
 
@@ -146,6 +161,7 @@ bool saveBrightnessIndex(uint8_t brightnessIndex) {
     // 写入EEPROM
     EEPROM.write(EEPROM_ADDR_VERSION, config.version);
     EEPROM.write(EEPROM_ADDR_BRIGHTNESS_INDEX, config.brightnessIndex);
+    EEPROM.write(EEPROM_ADDR_FONT_SIZE, config.fontSize);
     EEPROM.write(EEPROM_ADDR_MAGIC_NUMBER, config.magicNumber & 0xFF);
     EEPROM.write(EEPROM_ADDR_MAGIC_NUMBER + 1, (config.magicNumber >> 8) & 0xFF);
     EEPROM.write(EEPROM_ADDR_CHECKSUM, config.checksum);
@@ -161,6 +177,65 @@ bool saveBrightnessIndex(uint8_t brightnessIndex) {
     }
 
     return success;
+}
+
+/**
+ * @brief 保存字体大小状态到EEPROM
+ * @param isLargeFont true为大字体，false为小字体
+ * @return true 保存成功，false 保存失败
+ */
+bool saveFontSize(bool isLargeFont) {
+    // 先读取当前的亮度索引，以保持数据一致性
+    uint8_t currentBrightness = loadBrightnessIndex();
+
+    // 构建配置结构体
+    EEPROMConfig config;
+    config.version = EEPROM_CONFIG_VERSION;
+    config.brightnessIndex = currentBrightness;
+    config.fontSize = isLargeFont ? 1 : 0;
+    config.magicNumber = EEPROM_MAGIC_NUMBER;
+    config.checksum = 0;
+
+    // 计算CRC8校验和
+    config.checksum = calculateChecksum(&config);
+
+    // 写入EEPROM
+    EEPROM.write(EEPROM_ADDR_VERSION, config.version);
+    EEPROM.write(EEPROM_ADDR_BRIGHTNESS_INDEX, config.brightnessIndex);
+    EEPROM.write(EEPROM_ADDR_FONT_SIZE, config.fontSize);
+    EEPROM.write(EEPROM_ADDR_MAGIC_NUMBER, config.magicNumber & 0xFF);
+    EEPROM.write(EEPROM_ADDR_MAGIC_NUMBER + 1, (config.magicNumber >> 8) & 0xFF);
+    EEPROM.write(EEPROM_ADDR_CHECKSUM, config.checksum);
+
+    // 提交更改到Flash
+    bool success = EEPROM.commit();
+
+    if (success) {
+        LOG_DEBUG("Font size saved to EEPROM: %s (version: %d, CRC8: 0x%02X)",
+                  isLargeFont ? "Large" : "Small", config.version, config.checksum);
+    } else {
+        LOG_WARNING("Failed to save font size to EEPROM");
+    }
+
+    return success;
+}
+
+/**
+ * @brief 从EEPROM加载字体大小状态
+ * @return true为大字体，false为小字体。如果EEPROM无效则返回默认值true
+ */
+bool loadFontSize() {
+    // 验证EEPROM数据有效性
+    if (!validateEEPROM()) {
+        LOG_DEBUG("EEPROM data invalid, using default font size: Large");
+        return true;  // 返回默认大字体
+    }
+
+    // 读取字体大小
+    uint8_t fontSize = EEPROM.read(EEPROM_ADDR_FONT_SIZE);
+
+    LOG_DEBUG("Font size loaded from EEPROM: %s", fontSize ? "Large" : "Small");
+    return (fontSize != 0);
 }
 
 /**

@@ -167,6 +167,25 @@ void checkNetworkStatus() {
           timeClient.setTimeOffset(8 * 3600);
           timeClient.setPoolServerName(timeState.currentNtpServer);
         }
+        // 如果当前不是NTP时间源，且网络已恢复，尝试切换回NTP
+        else if (timeState.currentTimeSource != TIME_SOURCE_NTP) {
+          unsigned long switchElapsed = (millis() >= timeState.lastTimeSourceSwitch) ?
+                                       (millis() - timeState.lastTimeSourceSwitch) :
+                                       (0xFFFFFFFF - timeState.lastTimeSourceSwitch + millis());
+          const unsigned long SOURCE_SWITCH_COOLDOWN = 30000; // 30秒冷却时间
+          
+          if (switchElapsed >= SOURCE_SWITCH_COOLDOWN) {
+            LOG_INFO("Network restored, attempting to switch back to NTP");
+            // 尝试获取NTP时间
+            DateTime ntpTime;
+            if (getCurrentTimeFromNtp(ntpTime)) {
+              switchTimeSource(TIME_SOURCE_NTP);
+              LOG_INFO("Successfully switched back to NTP time source");
+            } else {
+              LOG_DEBUG("NTP not available yet, keeping current time source");
+            }
+          }
+        }
       } else {
         LOG_DEBUG("Network disconnected");
         // 网络断开，可能需要切换时间源
@@ -205,6 +224,30 @@ void checkNetworkStatus() {
                                        (0xFFFFFFFF - timeState.lastNtpCheckAttempt + currentMillis);
         if (ntpCheckElapsed > NTP_CHECK_COOLDOWN) {
           checkNtpConnection(false); // 不强制检查
+        }
+      }
+    }
+    
+    // 定期检查RTC健康状态，如果RTC失效且当前使用RTC，尝试切换到其他时间源
+    if (systemState.rtcInitialized && !systemState.rtcTimeValid && 
+        timeState.currentTimeSource == TIME_SOURCE_RTC) {
+      unsigned long switchElapsed = (millis() >= timeState.lastTimeSourceSwitch) ?
+                                   (millis() - timeState.lastTimeSourceSwitch) :
+                                   (0xFFFFFFFF - timeState.lastTimeSourceSwitch + millis());
+      const unsigned long SOURCE_SWITCH_COOLDOWN = 30000; // 30秒冷却时间
+      
+      if (switchElapsed >= SOURCE_SWITCH_COOLDOWN) {
+        if (systemState.networkConnected) {
+          LOG_INFO("RTC invalid, switching to NTP");
+          DateTime ntpTime;
+          if (getCurrentTimeFromNtp(ntpTime)) {
+            switchTimeSource(TIME_SOURCE_NTP);
+          } else if (timeState.softwareClockValid) {
+            switchTimeSource(TIME_SOURCE_MANUAL);
+          }
+        } else if (timeState.softwareClockValid) {
+          LOG_INFO("RTC invalid, switching to software clock");
+          switchTimeSource(TIME_SOURCE_MANUAL);
         }
       }
     }

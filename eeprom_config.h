@@ -18,6 +18,7 @@
 // EEPROM地址定义
 #define EEPROM_ADDR_VERSION           0    // 版本号 (1字节)
 #define EEPROM_ADDR_BRIGHTNESS_INDEX  1    // 亮度索引 (1字节)
+#define EEPROM_ADDR_FONT_SIZE         5    // 字体大小状态 (1字节, 0=小, 1=大)
 #define EEPROM_ADDR_MAGIC_NUMBER      2    // 魔数标识 (2字节)
 #define EEPROM_ADDR_CHECKSUM          4    // 校验和 (1字节)
 
@@ -34,6 +35,7 @@
 struct EEPROMConfig {
     uint8_t version;         // 配置版本号
     uint8_t brightnessIndex; // 亮度索引 (0-3)
+    uint8_t fontSize;        // 字体大小 (0=小, 1=大)
     uint16_t magicNumber;    // 魔数标识
     uint8_t checksum;        // 校验和
 };
@@ -51,6 +53,19 @@ void initEEPROM();
  * @return true 保存成功，false 保存失败
  */
 bool saveBrightnessIndex(uint8_t brightnessIndex);
+
+/**
+ * @brief 保存字体大小状态到EEPROM
+ * @param isLargeFont true为大字体，false为小字体
+ * @return true 保存成功，false 保存失败
+ */
+bool saveFontSize(bool isLargeFont);
+
+/**
+ * @brief 从EEPROM加载字体大小状态
+ * @return true为大字体，false为小字体。如果EEPROM无效则返回默认值true
+ */
+bool loadFontSize();
 
 /**
  * @brief 从EEPROM加载亮度索引

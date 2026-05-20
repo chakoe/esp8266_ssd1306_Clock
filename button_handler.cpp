@@ -5,6 +5,7 @@
 #include "utils.h"
 #include <ESP8266WiFi.h>
 #include "config.h"
+#include "eeprom_config.h"
 
 // 全局按钮状态数组声明 - 现在统一在global_config.cpp中定义
 extern ButtonStateArray buttonStates;
@@ -256,6 +257,10 @@ void handleNormalMode(int buttonIndex) {
     case 1: // K2短按切换字体大小
       displayState.largeFont = !displayState.largeFont;
       systemState.needsRefresh = true;
+      
+      // 保存字体状态到 EEPROM
+      saveFontSize(displayState.largeFont);
+      
       displayTime();
       break;
 

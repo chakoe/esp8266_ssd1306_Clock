@@ -87,6 +87,11 @@ void initHardwarePeripherals() {
     LOG_DEBUG("Using default brightness index: %d", displayState.brightnessIndex);
   }
 
+  // 从EEPROM加载字体大小状态
+  bool savedFontSize = loadFontSize();
+  displayState.largeFont = savedFontSize;
+  LOG_DEBUG("Loaded font size from EEPROM: %s", savedFontSize ? "Large" : "Small");
+
   // 初始化I2C总线和OLED显示器
   Wire.begin();
   u8g2.begin();

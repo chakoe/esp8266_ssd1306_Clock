@@ -38,6 +38,9 @@ const int NTP_TIMEOUT = 2000;                    // NTP单次请求超时时间(
 const unsigned long NTP_CHECK_COOLDOWN = 30000;  // NTP检查冷却时间(30秒)
 const unsigned long NTP_CHECK_TIMEOUT = 10000;   // NTP检查超时时间(10秒)，防止标志永久卡住
 
+// 时间源切换相关常量
+const unsigned long TIME_SOURCE_SWITCH_DELAY = 3000; // 时间源切换后延迟检查时间(3秒)
+
 // =============================================================================
 // 错误处理系统
 // =============================================================================

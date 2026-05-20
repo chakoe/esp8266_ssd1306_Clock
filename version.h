@@ -27,9 +27,9 @@ struct VersionInfo {
 // =============================================================================
 
 #define FIRMWARE_VERSION_MAJOR 2
-#define FIRMWARE_VERSION_MINOR 1
+#define FIRMWARE_VERSION_MINOR 2
 #define FIRMWARE_VERSION_PATCH 0
-#define FIRMWARE_VERSION_DATE "2025-02-03"
+#define FIRMWARE_VERSION_DATE "2026-05-17"
 
 // 编译时间宏(由编译器自动生成)
 #define BUILD_TIME __TIME__

@@ -143,16 +143,26 @@ void loop() {
   }
 
   // 检查是否需要立即进行NTP连接检查（例如在切换到NTP时间源后）
+  // 添加时间源切换后延迟检查机制，避免立即检查导致失败
   if (timeState.currentTimeSource == TIME_SOURCE_NTP && systemState.networkConnected &&
       timeState.lastNtpCheckAttempt == 0 && !timeState.ntpCheckInProgress) {
-    // 尝试进行NTP连接检查
-    if (checkNtpConnection(true)) {
-      LOG_DEBUG("Successfully got NTP time after source switch");
-      // 成功获取NTP时间后，强制刷新显示
-      systemState.needsRefresh = true;
-      lastNtpUpdateTime = currentMillis; // 更新最后更新时间
+    // 检查时间源切换后是否等待足够时间
+    unsigned long switchElapsed = (currentMillis >= timeState.lastTimeSourceSwitch) ?
+        (currentMillis - timeState.lastTimeSourceSwitch) :
+        (0xFFFFFFFF - timeState.lastTimeSourceSwitch + currentMillis);
+    
+    if (switchElapsed >= TIME_SOURCE_SWITCH_DELAY) { // 等待3秒后再检查
+      // 尝试进行NTP连接检查
+      if (checkNtpConnection(true)) {
+        LOG_DEBUG("Successfully got NTP time after source switch");
+        // 成功获取NTP时间后，强制刷新显示
+        systemState.needsRefresh = true;
+        lastNtpUpdateTime = currentMillis; // 更新最后更新时间
+      } else {
+        LOG_DEBUG("Failed to get NTP time after source switch");
+      }
     } else {
-      LOG_DEBUG("Failed to get NTP time after source switch");
+      LOG_DEBUG("Waiting for time source switch delay: %lums", switchElapsed);
     }
   }
 
@@ -161,12 +171,58 @@ void loop() {
       (currentMillis - lastNtpUpdateTime) :
       (0xFFFFFFFF - lastNtpUpdateTime + currentMillis);
   if (timeState.currentTimeSource == TIME_SOURCE_NTP &&
-      ntpElapsed > 5000) { // 每5秒检查一次NTP更新
+      ntpElapsed > NTP_SYNC_INTERVAL) { // 使用配置的NTP同步间隔(60秒)
     // 使用非阻塞的checkNtpConnection替代timeClient.update()
     if (!timeState.ntpCheckInProgress) {  // 确保不在已有NTP检查进行时
       checkNtpConnection(false);
     }
     lastNtpUpdateTime = currentMillis;
+  }
+  
+  // RTC定期同步检查：每30分钟同步一次NTP时间到RTC
+  static unsigned long lastRtcSyncCheck = 0;
+  if (systemState.rtcInitialized && systemState.networkConnected &&
+      timeState.currentTimeSource == TIME_SOURCE_NTP) {
+    unsigned long rtcSyncElapsed = (currentMillis >= lastRtcSyncCheck) ?
+        (currentMillis - lastRtcSyncCheck) :
+        (0xFFFFFFFF - lastRtcSyncCheck + currentMillis);
+    if (rtcSyncElapsed >= RTC_SYNC_INTERVAL) { // 30分钟同步一次
+      syncNtpToRtc(); // 触发RTC同步（非阻塞）
+      lastRtcSyncCheck = currentMillis;
+      LOG_DEBUG("Triggered RTC sync from main loop");
+    }
+  }
+  
+  // 智能时间源优化：定期检查并尝试升级到更精确的时间源
+  static unsigned long lastTimeSourceOptimization = 0;
+  unsigned long optimizationElapsed = (currentMillis >= lastTimeSourceOptimization) ?
+      (currentMillis - lastTimeSourceOptimization) :
+      (0xFFFFFFFF - lastTimeSourceOptimization + currentMillis);
+  
+  // 每5分钟检查一次是否需要优化时间源
+  if (optimizationElapsed >= 300000) { // 5分钟
+    lastTimeSourceOptimization = currentMillis;
+    
+    // 如果当前使用RTC或软件时钟，且网络已连接，尝试切换到NTP
+    if ((timeState.currentTimeSource == TIME_SOURCE_RTC || 
+         timeState.currentTimeSource == TIME_SOURCE_MANUAL) &&
+        systemState.networkConnected) {
+      
+      unsigned long switchElapsed = (currentMillis >= timeState.lastTimeSourceSwitch) ?
+          (currentMillis - timeState.lastTimeSourceSwitch) :
+          (0xFFFFFFFF - timeState.lastTimeSourceSwitch + currentMillis);
+      
+      const unsigned long OPTIMIZATION_COOLDOWN = 60000; // 1分钟冷却时间
+      
+      if (switchElapsed >= OPTIMIZATION_COOLDOWN) {
+        LOG_DEBUG("Checking for time source optimization opportunity");
+        DateTime ntpTime;
+        if (getCurrentTimeFromNtp(ntpTime)) {
+          LOG_INFO("NTP available, upgrading time source to NTP");
+          switchTimeSource(TIME_SOURCE_NTP);
+        }
+      }
+    }
   }
   
   // 更新主循环时间戳（用于看门狗监控）
